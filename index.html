@@ -1,0 +1,308 @@
+<html>
+<head>
+<link rel="stylesheet" type="text/css" href="minireset.css"/>
+<style type="text/css">
+	html, body{
+		height: 100%;
+		/*overflow: hidden;*/
+	}
+	body {
+		color: rgb(220, 220, 220);
+		background-color: black;
+	}
+	canvas#canvas {
+		position: absolute;
+		top: 0px;
+		left: 0px;
+	}
+</style>
+<title>Light Test</title>
+<script src="jquery-3.3.1.js" charset="utf-8"></script>
+
+<script>
+// file:///Users/ken/code/lightTest/index.html
+
+Array.prototype.filterInPlace = function(condition) {
+	let i = 0, j = 0;
+	let a = this;
+	
+	while (i < a.length) {
+		const val = a[i];
+		if (condition(val, i, a)) a[j++] = val;
+		i++;
+	}
+
+	a.length = j;
+	return a;
+}
+
+let ImageUrls = {
+	guy: 'cloakedBlue.png',
+	floor: 'floor.jpg',
+	potion: 'potion.png',
+	lightLit: ['lanternLitSharp.png', {across:4, down:1 }],
+	sight: 'sight2.png',
+	flicker0: 'flickerh0.png',
+	flicker1: 'flickerh1.png',
+	flicker2: 'flickerh2.png',
+	flameSheet: ['5.png', { across: 5, down: 4 } ],
+	explosion: ['Exp032purple.png', { across: 8, down: 8, dir: 1, dim: 128 } ],
+};
+// 4 is good, centered
+// 6! has some falling debris, 10 with w:192,h:192 for big hit
+// 11 is great
+// 6a is purple. Use dir=-1
+// 13 is a head shot
+// 18 is a straight-on shot
+// 26 is good reversed. pieces fly into the player nicely.
+// 31a dir 1 looks best (or 32 purpled)
+//let expIndex = 32;
+//let expDim = expIndex <= 10 ? { across: 16, down: 4, dir: 1, dim: 192 } : { across: 8, down: 8, dir: 1, dim: 128 };
+//let name = 'Exp0'+(expIndex<10?'0':'')+expIndex+'.png';
+//ImageUrls['exp'+expIndex] = [ name, expDim ];
+
+
+// Sight is Opactiy 40%, brush size 220, hardness 90
+// Flames are from https://graphicriver.net/downloads
+
+let Img = {};
+
+function assetLoad(imageUrls, target) {
+	return new Promise( (resolve,reject)=>{
+		let imagesRequested = Object.keys(imageUrls).length;
+		let imagesLoaded = 0;
+		let gotImage = function() {
+			if( ++imagesLoaded >= imagesRequested ) {
+				resolve();
+			}
+		}
+		for(let key in imageUrls){
+			let isSheet = Array.isArray(imageUrls[key]);
+			target[key] = new Image();
+			target[key].onload = gotImage;
+			target[key].src = isSheet ? imageUrls[key][0] : imageUrls[key];
+			if( isSheet ) {
+				console.assert( imageUrls[key][1].across );
+				target[key].sheet = imageUrls[key][1];
+			}
+		}
+	});
+}
+
+function contextGet(id) {
+	let c = document.getElementById(id).getContext('2d');
+	return c;
+}
+
+function randInt(n) {
+	return Math.floor(Math.random()*n);
+}
+
+let Phase = {
+	visibility: 'visibility',
+	floors: 'floors',
+	items: 'items',
+	players: 'players',
+	explosions: 'explosions'
+}
+
+class Sprite {
+	constructor(img,phase,details) {
+		console.assert( Phase[phase] );
+		this.img = img;
+		this.phase = phase;
+		this.alive = true;
+		this.x = null;
+		this.y = null;
+		this.w = null;
+		this.h = null;
+		this.preDraw = null;
+		this.frameIndex = 0;
+		this.frameCount = !img.sheet ? 0 : ( img.sheet.frameCount || img.sheet.across*img.sheet.down);
+		console.assert( this.frameCount>=0 );
+		this.onTick = null;
+		this.onDraw = (ctx) => {
+			this._drawCtr(ctx);
+		}
+		this.onEnd = null;
+		if( details ) this.det(details);
+		this.img.onInit ? this.img.onInit.apply(this,this) : 0;
+	}
+	set(obj) {
+		for( let key in obj ) {
+			this[key] = obj[key];
+		}
+		return this;
+	}
+
+	_drawCtr(ctx) {
+		if( this.img.sheet ) {
+			let w = this.w!==null ? this.w : this.img.width / this.img.sheet.across;
+			let h = this.h!==null ? this.h : this.img.height / this.img.sheet.down;
+			let params = this.get( this.frameIndex, this.x, this.y, w, h );
+			params[5] -= params[7]/2;	// centers the destination x
+			params[6] -= params[8]/2;	// centers the destination y
+			ctx.drawImage(...params);
+		}
+		else {
+			let x = this.x - ( (this.w!==null) ? this.w : this.img.width )/2;
+			let y = this.y - ( (this.h!==null) ? this.h : this.img.height )/2;
+			ctx.drawImage( this.img, x, y );
+		}
+	}
+
+	draw(ctx) {
+		this.onDraw(ctx);
+	}
+
+	end() {
+		this.onEnd ? this.onEnd(this) : 0;
+	}
+
+	get(frameIndex,x,y,w,h) {
+		frameIndex = frameIndex % this.frameCount;
+		let sw = this.img.width/this.img.sheet.across;
+		let sh = this.img.height/this.img.sheet.down;
+		let sx = (frameIndex % this.img.sheet.across) * sw;
+		let sy = Math.floor(frameIndex/this.img.sheet.across) * sh;
+
+		return [this.img,sx,sy,sw,sh,x,y,w,h];
+	}
+	tick() {
+		this.onTick ? this.onTick(this) : 0;
+	}
+}
+
+function spritesCreate(img,phase,list) {
+	let spriteList = [];
+	for( let i=0 ; i<list.length ; i+=2 ) {
+		let sprite = new Sprite(img,phase);
+		let pos = { x: 32+list[i+0]*64, y: 32+list[i+1]*64 };
+		sprite.set( pos );
+		spriteList.push(sprite);
+	}
+	return spriteList;
+}
+
+
+function start(callback) {
+
+	let init = {
+		sights:  [1,1],
+		lights:  [2,5, 6,2, 7,3],
+		potions: [2,2, 1,3, 5,4, 5,1],
+		guys:    [2,0, 1,1, 3,3, 5,3, 2,4, 8,3]
+	};
+
+	Img.lightLit.onInit = function() {
+		this.set({
+			onTick: () => {
+				if( randInt(100)<5 ) {
+					this.frameIndex = (this.frameIndex+1) % this.frameCount;
+				}
+//				if( randInt(100)<5 ) {
+//					this.frameIndex = randInt(this.frameCount);
+//				}
+			},
+			//flame: new Sprite(Img.flameSheet,Phase.items,{frameIndex: Math.floor(Math.random()*20)}),
+			onDraw: (ctx) => {
+				//this.flame.set({ frameIndex: this.frameIndex, x: this.x, y: this.y, w: 20, h: 30 });
+				//this.flame.draw(ctx);
+				this._drawCtr(ctx);
+			}
+		});
+
+		let flicker = new Sprite( Img.flicker0, Phase.visibility );
+		flicker.set({
+			parent: this,
+			frames: ['flicker0','flicker1','flicker2'],
+			onTick: function() {
+				this.x = this.parent.x;
+				this.y = this.parent.y;
+				this.frameIndex = randInt(100)<90 ? this.frameIndex : randInt(flicker.frames.length);
+				this.img = Img[flicker.frames[this.frameIndex]];
+			}
+		});
+
+		spriteList.push( flicker );
+	}
+
+	Img.explosion.onInit = function() {
+		this.set({
+			w: this.img.sheet.dim,
+			h: this.img.sheet.dim,
+			frameIndex: this.img.sheet.dir>0 ? 0 : this.frameCount,
+			onTick: () => {
+				this.frameIndex += this.img.sheet.dir;
+				this.alive = this.frameIndex >= 0 && this.frameIndex < this.frameCount;
+			}
+		});
+	}
+
+	function initializeWorld() {
+		for( let y=0 ; y<10 ; ++y ) {
+			for( let x=0 ; x<10 ; ++x ) {
+				spriteList.push( new Sprite( Img.floor, Phase.floors ).set({x:32+x*64,y:32+y*64}) );
+			}
+		}
+		spriteList.push( ...spritesCreate( Img.sight, Phase.visibility, init.sights ) );
+		spriteList.push( ...spritesCreate( Img.lightLit, Phase.items, init.lights ) );
+		spriteList.push( ...spritesCreate( Img.potion, Phase.items, init.potions ) );
+		spriteList.push( ...spritesCreate( Img.guy, Phase.players, init.guys ) );
+
+		let explosion = new Sprite( Img.explosion, Phase.explosions );
+		explosion.set({x:32+5*64,y:32+20+3*64});
+		spriteList.push(explosion);
+
+	}
+
+	function tick() {
+		spriteList.forEach( sprite => {
+			sprite.tick();
+		});
+
+		Object.values(Phase).forEach( phase => {
+			if( phase == Phase.visibility ) {
+				// Draw the pixels representing light brightness
+				ctx.globalCompositeOperation = 'source-over';
+				ctx.clearRect(0,0,800,800);
+			}
+			else if( phase == Phase.explosions ) {
+				ctx.globalCompositeOperation = 'source-over';
+			}
+			else {
+				// Shift composite modes, so that whatever is drawn never exceeds the transparency of whatever is below it
+				ctx.globalCompositeOperation = 'source-atop';
+			}
+
+			spriteList.forEach( sprite => {
+				if( sprite.alive && sprite.phase == phase ) {
+					sprite.draw(ctx);
+				}
+			});
+		});
+
+		spriteList.filterInPlace( sprite => sprite.alive );
+	}
+
+	let ctx = contextGet('canvas');
+	let spriteList = [];
+	initializeWorld();
+	setInterval( tick, 1000/60);
+}
+
+
+$(document).ready( () => {
+	assetLoad(ImageUrls,Img).then( start );
+});
+
+
+</script>
+
+</head>
+<body>
+	<div>
+		<canvas id="canvas" width="800" height="800"></canvas>
+	</div>
+</body>
+</html>
