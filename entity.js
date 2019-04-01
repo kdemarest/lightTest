@@ -3,7 +3,7 @@ class Entity {
 		this.alive = true;
 		this.paused = false;
 		this.onEnd = [];
-		this.onTick = null;
+		this.onTick = [];
 		Entity.addMe.call(this);
 	}
 	set(obj) {
@@ -19,7 +19,7 @@ class Entity {
 		return this.alive;
 	}
 	tick() {
-		this.onTick && !this.paused ? this.onTick(this) : 0;
+		this.onTick && !this.paused ? this.onTick.forEach( fn => fn.call(this) ) : 0;
 	}
 }
 

@@ -72,9 +72,6 @@ let ImageSrc = {
 // Flames are from https://graphicriver.net/downloads
 
 let Img = {};
-let pieceList;
-let spriteList;
-let animationList;
 
 function assetLoad(imageSrc, target) {
 	return new Promise( (resolve,reject)=>{
@@ -144,7 +141,7 @@ function start(callback) {
 		this.stable = randInt(instabilityDuration+maxStabilityDuration);
 		let light = piece.light;
 		let flicker = piece.flicker;
-		this.onTick = () => {
+		this.onTick.push( () => {
 			this.stable -= 1/FPS;
 			if( this.stable < instabilityDuration && randInt(100)<FPS*flickerFrequency ) {
 				light.frameIndex = randInt(light.frameCount);
@@ -157,23 +154,23 @@ function start(callback) {
 			flicker.frameIndex = light.frameIndex;	// sync with the light
 			flicker.img = Img[this.frames[flicker.frameIndex]];
 			console.assert(flicker.img);
-		}
+		});
 	}
 
 	Animation.sequential = function(sprite,settings) {
 		sprite.frameIndex = settings.direction < 0 ? sprite.frameCount : 0;
-		this.onTick = () => {
+		this.onTick.push( () => {
 			sprite.frameIndex += settings.direction || 1
 			this.alive = sprite.frameIndex >= 0 && sprite.frameIndex < sprite.frameCount;
 			sprite.alive = settings.spriteDieAtEnd ? this.alive : sprite.alive;
-		}
+		});
 	}
 
 	Animation.vibrate = function(sprite,settings) {
 		let xBase = sprite.x;
 		let yBase = sprite.y;
 		let timeout = settings.timeout;
-		this.onTick = () => {
+		this.onTick.push( () => {
 			if( randInt(100)<100 ) {
 				sprite.x = xBase + randInt(15)-7;
 			}
@@ -181,11 +178,13 @@ function start(callback) {
 			if( timeout<=0 ) {
 				this.alive = false;
 			}
-		}
-		this.onEnd.push( () => {
-			sprite.x = xBase;
-			sprite.y = yBase;
 		});
+		if( settings.resetAtEnd ) {
+			this.onEnd.push( () => {
+				sprite.x = xBase;
+				sprite.y = yBase;
+			});
+		};
 	}
 
 	Animation.rise = function(sprite,settings) {
@@ -194,13 +193,13 @@ function start(callback) {
 		let timeout = settings.timeout;
 		let rise  = settings.rise*64;
 		let rate  = rise/(timeout*FPS);
-		this.onTick = () => {
+		this.onTick.push( () => {
 			sprite.y -= rate;
 			timeout -= 1/FPS;
 			if( timeout<=0 ) {
 				this.alive = false;
 			}
-		}
+		});
 		this.onEnd.push( () => {
 			sprite.x = xBase;
 			sprite.y = yBase;
@@ -235,8 +234,8 @@ function start(callback) {
 	function bombTarget(piece) {
 		let explosionSprite = new Sprite( Img.explosion, Phase.explosions ).setPos( 32+piece.x*64, 32+20+piece.y*64 );
 		let explosion       = new Animation( Animation.sequential, explosionSprite, { direction: 1, spriteDieAtEnd: true } );
-		let vibrate         = new Animation( Animation.vibrate, piece.sprite, {timeout: 2.0} );
-		let rise			= new Animation( Animation.rise, piece.sprite, {timeout: 2.0, rise: 4} );
+		let vibrate         = new Animation( Animation.vibrate, piece.sprite, {timeout: 2., resetAtEnd: false} );
+		let rise			= new Animation( Animation.rise, piece.sprite, {timeout: 2.0, rise: 2.0} );
 		rise.delay = 1.0;
 		rise.onEnd.push( () => piece.alive = false );
 	}
@@ -282,10 +281,10 @@ function start(callback) {
 	Animation.addMe	= function() { animationList.list.push(this); }
 
 	let ctx = contextGet('canvas');
-	entityList		= new EntityList();
-	pieceList		= new PieceList();
-	spriteList		= new SpriteList();
-	animationList	= new AnimationList();
+	let entityList		= new EntityList();
+	let pieceList		= new PieceList();
+	let spriteList		= new SpriteList();
+	let animationList	= new AnimationList();
 	initializeWorld();
 
 	delay( 2.0, () => bombTarget(pieceList.pieceAt(3,3)) );
@@ -300,6 +299,8 @@ function start(callback) {
 $(document).ready( () => {
 	assetLoad(ImageSrc,Img).then( start );
 });
+
+
 
 
 </script>
