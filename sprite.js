@@ -20,7 +20,6 @@ class Sprite extends Entity {
 		this.y = null;
 		this.w = null;
 		this.h = null;
-		this.preDraw = null;
 		this.frameIndex = 0;
 		this.frameCount = !img.sheet ? 0 : ( img.sheet.frameCount || img.sheet.across*img.sheet.down);
 		console.assert( this.frameCount>=0 );
