@@ -9,10 +9,13 @@ let Phase = {
 
 class Sprite extends Entity {
 	constructor(img,phase,details) {
+		if( !img ) throw "oops";
+		console.assert(img && img.src);
 		console.assert( Phase[phase] );
 		super();
 		this.img = img;
 		this.phase = phase;
+		this.visible = true;
 		this.x = null;
 		this.y = null;
 		this.w = null;
@@ -26,6 +29,7 @@ class Sprite extends Entity {
 		}
 		if( details ) this.det(details);
 		this.img.onInit ? this.img.onInit.call(this,this) : 0;
+		Sprite.addMe.call(this);
 	}
 
 	setPos(x,y) {
@@ -61,6 +65,7 @@ class Sprite extends Entity {
 	}
 
 	draw(ctx) {
+		if( !this.visible ) return;
 		this.onDraw(ctx);
 	}
 }

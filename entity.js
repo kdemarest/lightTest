@@ -1,8 +1,10 @@
 class Entity {
 	constructor() {
 		this.alive = true;
-		this.onEnd = null;
+		this.paused = false;
+		this.onEnd = [];
 		this.onTick = null;
+		Entity.addMe.call(this);
 	}
 	set(obj) {
 		for( let key in obj ) {
@@ -12,12 +14,12 @@ class Entity {
 	}
 	checkAlive() {
 		if( !this.alive ) {
-			this.onEnd ? this.onEnd() : 0;
+			this.onEnd.forEach( fn => fn.call(this) );
 		}
 		return this.alive;
 	}
 	tick() {
-		this.onTick ? this.onTick(this) : 0;
+		this.onTick && !this.paused ? this.onTick(this) : 0;
 	}
 }
 
@@ -25,19 +27,13 @@ class EntityList {
 	constructor() {
 		this.list = [];
 	}
-	push() {
-		for( let a of arguments ) {
-			a.manager = this;
-			this.list.push(a);
-		}
-	}
 	forEach(fn) {
 		this.list.forEach(fn);
 	}
 	tick() {
-		this.list.forEach( anim => anim.tick() );
+		this.list.forEach( entity => entity.tick() );
 	}
 	checkAlive() {
-		this.list.filterInPlace( item => item.checkAlive() );
+		this.list.filterInPlace( entity => entity.checkAlive() );
 	}
 }

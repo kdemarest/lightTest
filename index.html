@@ -72,6 +72,9 @@ let ImageSrc = {
 // Flames are from https://graphicriver.net/downloads
 
 let Img = {};
+let pieceList;
+let spriteList;
+let animationList;
 
 function assetLoad(imageSrc, target) {
 	return new Promise( (resolve,reject)=>{
@@ -106,15 +109,41 @@ function randInt(n) {
 	return Math.floor(Math.random()*n);
 }
 
+class Piece extends Entity {
+	constructor(uid,type,x,y) {
+		super();
+		this.uid = uid;
+		this.type = type;
+		this.x = x;
+		this.y = y;
+		Piece[type].call(this);
+		Piece.addMe.call(this);
+	}
+	set visible(value) {
+		for( let m in this ) {
+			if( this[m] instanceof Sprite ) {
+				this[m].visible = value;
+			}
+		}
+	}
+}
+
+class PieceList extends EntityList {
+	pieceAt(x,y) {
+		return this.list.find( piece => piece.x==x && piece.y==y );
+	}
+}
 
 function start(callback) {
 
-	Animation.lightFlicker = function(light) {
+	Animation.lightFlicker = function(piece) {
 		let instabilityDuration = 2;	// in seconds
 		let maxStabilityDuration = 8;	// in seconds
 		let flickerFrequency = 0.1;		// in seconds
 		this.frames = ['flicker0','flicker1','flicker2','flicker3','flicker4'];
 		this.stable = randInt(instabilityDuration+maxStabilityDuration);
+		let light = piece.light;
+		let flicker = piece.flicker;
 		this.onTick = () => {
 			this.stable -= 1/FPS;
 			if( this.stable < instabilityDuration && randInt(100)<FPS*flickerFrequency ) {
@@ -123,15 +152,15 @@ function start(callback) {
 			if( this.stable < 0 ) {
 				this.stable = instabilityDuration+randInt(maxStabilityDuration);
 			}
-			let f = light.flicker;
-			f.x = light.x;
-			f.y = light.y;
-			f.frameIndex = light.frameIndex;	// sync with the light
-			f.img = Img[this.frames[f.frameIndex]];
+			flicker.x = light.x;
+			flicker.y = light.y;
+			flicker.frameIndex = light.frameIndex;	// sync with the light
+			flicker.img = Img[this.frames[flicker.frameIndex]];
+			console.assert(flicker.img);
 		}
 	}
 
-	Animation.run = function(sprite,settings) {
+	Animation.sequential = function(sprite,settings) {
 		sprite.frameIndex = settings.direction < 0 ? sprite.frameCount : 0;
 		this.onTick = () => {
 			sprite.frameIndex += settings.direction || 1
@@ -140,52 +169,97 @@ function start(callback) {
 		}
 	}
 
-	Img.lightLit.onInit = function() {
-		this.flicker = new Sprite( Img.flicker0, Phase.visibility );
-		spriteList.push( this.flicker );
-		this.onEnd = () => this.flicker.alive=false;
-		animationList.push( new Animation( Animation.lightFlicker, this ) );
+	Animation.vibrate = function(sprite,settings) {
+		let xBase = sprite.x;
+		let yBase = sprite.y;
+		let timeout = settings.timeout;
+		this.onTick = () => {
+			if( randInt(100)<100 ) {
+				sprite.x = xBase + randInt(15)-7;
+			}
+			timeout -= 1/FPS;
+			if( timeout<=0 ) {
+				this.alive = false;
+			}
+		}
+		this.onEnd.push( () => {
+			sprite.x = xBase;
+			sprite.y = yBase;
+		});
+	}
+
+	Animation.rise = function(sprite,settings) {
+		let xBase = sprite.x;
+		let yBase = sprite.y;
+		let timeout = settings.timeout;
+		let rise  = settings.rise*64;
+		let rate  = rise/(timeout*FPS);
+		this.onTick = () => {
+			sprite.y -= rate;
+			timeout -= 1/FPS;
+			if( timeout<=0 ) {
+				this.alive = false;
+			}
+		}
+		this.onEnd.push( () => {
+			sprite.x = xBase;
+			sprite.y = yBase;
+		});
+
 	}
 
 	Img.explosion.onInit = function() {
 		this.w = this.img.sheet.dim;
 		this.h = this.img.sheet.dim;
-		animationList.push( new Animation( Animation.run, this, { direction: 1, spriteDieAtEnd: true } ) );
 	}
 
-
-	let init = {
-		sights:  [1,1],
-		lights:  [2,5, 6,2, 7,3],
-		potions: [2,2, 1,3, 5,4, 5,1],
-		guys:    [2,0, 1,1, 3,3, 5,3, 2,4, 8,3]
-	};
-
-	function spritesCreate(img,phase,list) {
-		let result = [];
-		for( let i=0 ; i<list.length ; i+=2 ) {
-			let sprite = new Sprite(img,phase);
-			sprite.setPos( 32+list[i+0]*64, 32+list[i+1]*64 );
-			result.push(sprite);
-		}
-		return result;
+	Piece.guy = function() {
+		console.assert(this.x>=0 && this.y>=0);
+		this.sprite = new Sprite( Img.guy, Phase.players ).setPos( 32+this.x*64, 32+this.y*64 );
+		this.sight  = new Sprite( Img.sight, Phase.visibility ).setPos(this.sprite.x,this.sprite.y);
+		this.onEnd.push( () => this.sprite.alive=this.sight.alive=false );
 	}
+
+	Piece.light = function() {
+		this.light = new Sprite( Img.lightLit, Phase.items ).setPos( 32+this.x*64, 32+this.y*64 );
+		this.flicker = new Sprite( Img.flicker0, Phase.visibility ).setPos(this.light.x,this.light.y);
+		this.flickerAnim = new Animation( Animation.lightFlicker, this );
+		this.onEnd.push( () => this.light.alive=this.flicker.alive=this.flickerAnim.alive=false );
+	}
+
+	Piece.potion = function() {
+		this.sprite = new Sprite( Img.potion, Phase.items );
+		this.onEnd.push( () => this.sprite.alive=false );
+	}
+
+	function bombTarget(piece) {
+		let explosionSprite = new Sprite( Img.explosion, Phase.explosions ).setPos( 32+piece.x*64, 32+20+piece.y*64 );
+		let explosion       = new Animation( Animation.sequential, explosionSprite, { direction: 1, spriteDieAtEnd: true } );
+		let vibrate         = new Animation( Animation.vibrate, piece.sprite, {timeout: 2.0} );
+		let rise			= new Animation( Animation.rise, piece.sprite, {timeout: 2.0, rise: 4} );
+		rise.delay = 1.0;
+		rise.onEnd.push( () => piece.alive = false );
+	}
+
+	function delay(secs, fn) {
+		return setTimeout( fn, secs*1000 );
+	}
+
+	let init = [
+		'guy', 1,1, 'guy', 3,3, 'guy', 5,3, 'guy', 2,4, 'guy', 8,3,
+		'light', 2,5, 'light', 6,2, 'light', 7,3,
+		'potion',2,2, 'potion',1,3, 'potion',5,4, 'potion',5,1
+	];
 
 	function initializeWorld() {
 		for( let y=0 ; y<10 ; ++y ) {
 			for( let x=0 ; x<10 ; ++x ) {
-				spriteList.push( new Sprite( Img.floor, Phase.floors ).setPos( 32+x*64, 32+y*64 ) );
+				new Sprite( Img.floor, Phase.floors ).setPos( 32+x*64, 32+y*64 );
 			}
 		}
-		spriteList.push( ...spritesCreate( Img.sight, Phase.visibility, init.sights ) );
-		spriteList.push( ...spritesCreate( Img.lightLit, Phase.items, init.lights ) );
-		spriteList.push( ...spritesCreate( Img.potion, Phase.items, init.potions ) );
-		spriteList.push( ...spritesCreate( Img.guy, Phase.players, init.guys ) );
-
-		let explosion = new Sprite( Img.explosion, Phase.explosions );
-		explosion.setPos( 32+5*64, 32+20+3*64 );
-		spriteList.push(explosion);
-
+		for( let i=0 ; i<init.length ; i+=3 ) {
+			new Piece( Math.random(), init[i+0], init[i+1], init[i+2] );
+		}
 	}
 
 	function render() {
@@ -193,15 +267,29 @@ function start(callback) {
 	}
 
 	function tick() {
-		animationList.tick()
+		pieceList.tick();
+		spriteList.tick();
+		animationList.tick();
+
+		pieceList.checkAlive();
 		animationList.checkAlive();
 		spriteList.checkAlive();
 	}
 
+	Entity.addMe    = function() { entityList.list.push(this); }
+	Piece.addMe		= function() { pieceList.list.push(this); }
+	Sprite.addMe	= function() { spriteList.list.push(this); }
+	Animation.addMe	= function() { animationList.list.push(this); }
+
 	let ctx = contextGet('canvas');
-	let spriteList = new SpriteList();
-	let animationList = new AnimationList();
+	entityList		= new EntityList();
+	pieceList		= new PieceList();
+	spriteList		= new SpriteList();
+	animationList	= new AnimationList();
 	initializeWorld();
+
+	delay( 2.0, () => bombTarget(pieceList.pieceAt(3,3)) );
+
 	setInterval( () => {
 		tick();
 		render();
