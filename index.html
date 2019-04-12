@@ -73,7 +73,7 @@ let ImageSrc = {
 
 let Img = {};
 
-function assetLoad(imageSrc, target) {
+function imageLoad(imageSrc, target) {
 	return new Promise( (resolve,reject)=>{
 		let imagesRequested = Object.keys(imageSrc).length;
 		let imagesLoaded = 0;
@@ -297,7 +297,7 @@ function start(callback) {
 
 
 $(document).ready( () => {
-	assetLoad(ImageSrc,Img).then( start );
+	imageLoad(ImageSrc,Img).then( start );
 });
 
 </script>

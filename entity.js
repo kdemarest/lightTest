@@ -31,13 +31,24 @@ class EntityList {
 	forEach(fn) {
 		return this.list.forEach(fn);
 	}
-//	forEach() {
-//		return this.list.forEach.apply(this,arguments);
-//	}
 	tick() {
 		this.list.forEach( (entity) => entity.tick() );
 	}
 	checkAlive() {
 		this.list.filterInPlace( (entity) => entity.checkAlive() );
+	}
+}
+
+class EntityHash {
+	constructor() {
+		this.hash = [];
+	}
+	forEach(fn) {
+		for( let key in this.hash ) {
+			fn( this.hash[key], key );
+		}
+	}
+	tick() {
+		this.hash.forEach( (entity) => entity.tick() );
 	}
 }
